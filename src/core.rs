@@ -215,8 +215,21 @@ where
     /// Write the audio samples contained within this wav file to a new wav file.
     /// Writes the samples to the specified path with the given type ``F``.
     /// The function will return an error if there is an issue writing the file.
+    pub fn write_to_path<F: AudioSample, P: AsRef<Path>>(&mut self, p: P) -> WaversResult<()>
+    where
+        T: ConvertTo<F>,
+        Box<[T]>: ConvertSlice<F>,
+    {
+        let f = std::fs::File::create(p)?;
+        let mut buf_writer: BufWriter<File> = BufWriter::new(f);
+        self.write(&mut buf_writer)
+    }
+
+    /// Write the audio samples contained within this wav file to the given writer.
+    /// Writes the samples to the specified path with the given type ``F``.
+    /// The function will return an error if there is an issue writing the data.
     #[inline(always)]
-    pub fn write<F: AudioSample, P: AsRef<Path>>(&mut self, p: P) -> WaversResult<()>
+    pub fn write<F: AudioSample, W: Write>(&mut self, writer: &mut W) -> WaversResult<()>
     where
         T: ConvertTo<F>,
         Box<[T]>: ConvertSlice<F>,
@@ -227,26 +240,24 @@ where
         self.wav_info.wav_header =
             WavHeader::new_header::<F>(fmt_chunk.sample_rate, fmt_chunk.channels, samples.len())?;
 
-        let f = std::fs::File::create(p)?;
-        let mut buf_writer: BufWriter<File> = BufWriter::new(f);
         let data_size_bytes = sample_bytes.len() as u32; // write up to the data size
 
         match self.format() {
             (FormatCode::WAV_FORMAT_PCM, FormatCode::WAV_FORMAT_PCM) => {
                 let header_bytes = self.wav_info.wav_header.as_base_bytes();
-                buf_writer.write_all(&header_bytes)?;
+                writer.write_all(&header_bytes)?;
             }
             (FormatCode::WAV_FORMAT_IEEE_FLOAT, _) => {
                 let header_bytes = self.wav_info.wav_header.as_extended_bytes(); // need to check if the format should always be marked as extended
-                buf_writer.write_all(&header_bytes)?;
+                writer.write_all(&header_bytes)?;
             }
             (FormatCode::WAVE_FORMAT_EXTENSIBLE, FormatCode::WAV_FORMAT_PCM) => {
                 let header_bytes = self.wav_info.wav_header.as_cb_bytes();
-                buf_writer.write_all(&header_bytes)?;
+                writer.write_all(&header_bytes)?;
             }
             (FormatCode::WAVE_FORMAT_EXTENSIBLE, _) => {
                 let header_bytes = self.wav_info.wav_header.as_extended_bytes();
-                buf_writer.write_all(&header_bytes)?;
+                writer.write_all(&header_bytes)?;
             }
             _ => {
                 return Err(WaversError::UnsupportedWriteFormat(
@@ -256,9 +267,9 @@ where
             }
         };
 
-        buf_writer.write_all(&DATA)?;
-        buf_writer.write_all(&data_size_bytes.to_ne_bytes())?; // write the data size
-        buf_writer.write_all(&sample_bytes)?; // write the data
+        writer.write_all(&DATA)?;
+        writer.write_all(&data_size_bytes.to_ne_bytes())?; // write the data size
+        writer.write_all(&sample_bytes)?; // write the data
         Ok(())
     }
 
